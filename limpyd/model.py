@@ -116,7 +116,7 @@ class RedisModel(RedisProxyCommand):
     @property
     def connection(self):
         if self._connection is None:
-            self._connection = get_connection()
+            self._connection = self.get_connection()
         return self._connection
 
     @property
@@ -154,7 +154,7 @@ class RedisModel(RedisProxyCommand):
         Return a list of pk, eventually filtered by kwargs.
         """
         # We cannot use the current connection here, as we have no instance
-        connection = get_connection()
+        connection = cls.get_connection()
         index_keys = list()
         for field_name, value in kwargs.iteritems():
             field = getattr(cls, "_redis_attr_%s" % field_name)

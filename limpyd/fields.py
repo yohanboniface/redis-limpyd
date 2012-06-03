@@ -53,6 +53,13 @@ class RedisProxyCommand(object):
         log.debug(u"Requesting %s with key %s and args %s" % (name, key, args))
         return attr(key, *args, **kwargs)
 
+    @classmethod
+    def get_connection(cls):
+        """
+        Override this class if you want a connection different to the default one
+        """
+        return get_connection()
+
     class transaction(object):
 
         def __init__(self, instance):
@@ -65,7 +72,7 @@ class RedisProxyCommand(object):
             # Not working with getters: pipeline methods return pipeline instance, so
             # a .get() made with a pipeline does not have the same behaviour
             # than a .get() made with a client
-            connection = get_connection()
+            connection = self.instance.get_connection()
             self.pipe = connection.pipeline()
             self.instance._connection = self.pipe
             return self.pipe
