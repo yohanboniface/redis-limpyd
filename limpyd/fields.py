@@ -365,13 +365,13 @@ class PKField(RedisField):
         """
         Return True if the given pk value exists for the given class
         """
-        return get_connection().sismember(self.collection_key, value)
+        return self.get_connection().sismember(self.collection_key, value)
 
     def collection(self):
         """
         Return all available primary keys for the given class
         """
-        return get_connection().smembers(self.collection_key)
+        return self.get_connection().smembers(self.collection_key)
 
     def set(self, value):
         """

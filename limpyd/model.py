@@ -3,7 +3,6 @@
 from logging import getLogger
 from copy import copy
 
-from limpyd import get_connection
 from limpyd.fields import *
 from limpyd.utils import make_key
 from limpyd.exceptions import *
@@ -210,7 +209,7 @@ class RedisModel(RedisProxyCommand):
         Specific work is done if the pk is in the kwargs
         """
         # We cannot use the current connection here, as we have no instance
-        connection = get_connection()
+        connection = cls.get_connection()
 
         # Exclude primary key from fields
         query_fields = {}
