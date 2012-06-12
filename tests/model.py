@@ -2,6 +2,8 @@
 
 import unittest
 
+from datetime import datetime
+
 from limpyd import model
 from limpyd import fields
 from limpyd.exceptions import *
@@ -11,6 +13,7 @@ from base import LimpydBaseTest
 class Bike(model.RedisModel):
     name = fields.StringField(indexable=True)
     wheels = fields.StringField(default=2)
+    passengers = fields.StringField(default=1, cacheable=False)
 
 
 class MotorBike(Bike):
@@ -21,6 +24,8 @@ class Boat(model.RedisModel):
     """
     Use also HashableField.
     """
+    cacheable = False
+
     name = fields.StringField(unique=True)
     power = fields.HashableField(indexable=True, default="sail")
     launched = fields.StringField(indexable=True)
@@ -71,6 +76,10 @@ class InitTest(LimpydBaseTest):
     def test_default_value_should_not_override_setted_one(self):
         bike = Bike(name="rosalie", wheels=4)
         self.assertEqual(bike.wheels.get(), '4')
+
+    def test_wrong_field_name_cannot_be_used(self):
+        with self.assertRaises(ValueError):
+            bike = Bike(power="human")
 
 
 class IndexationTest(LimpydBaseTest):
@@ -260,6 +269,39 @@ class CommandCacheTest(LimpydBaseTest):
         self.assertEqual(wheels, "4")
         self.assertEqual(hits_after_flush, hits_after_getting_wheels)
 
+    def test_not_cached_field_should_not_hit_cache(self):
+        bike = Bike(name="tandem", wheels=2, passengers=2)
+        # First get
+        name = bike.name.get()
+        passengers = bike.passengers.get()
+        hits_before = self.connection.info()['keyspace_hits']
+        # Get again
+        name = bike.name.get()
+        passengers = bike.passengers.get()
+        hits_after = self.connection.info()['keyspace_hits']
+        self.assertEqual(name, "tandem")
+        self.assertEqual(passengers, "2")
+        hits_attended = hits_before + 1  # one field, `passengers`, should miss cache
+        self.assertEqual(hits_after, hits_attended)
+
+    def test_not_cached_model_should_not_hit_cache(self):
+        boat = Boat(name="Pen Duick I", length=15.1, launched=1898)
+        # First get
+        name = boat.name.get()
+        length = boat.length.get()
+        launched = boat.launched.get()
+        hits_before = self.connection.info()['keyspace_hits']
+        # Get again
+        name = boat.name.get()
+        length = boat.length.get()
+        launched = boat.launched.get()
+        hits_after = self.connection.info()['keyspace_hits']
+        self.assertEqual(name, "Pen Duick I")
+        self.assertEqual(length, "15.1")
+        self.assertEqual(launched, "1898")
+        hits_attended = hits_before + 3  # the 3 fields should miss cache
+        self.assertEqual(hits_after, hits_attended)
+
 
 class MetaRedisProxyTest(LimpydBaseTest):
 
@@ -277,23 +319,53 @@ class MetaRedisProxyTest(LimpydBaseTest):
         check_available_commands(fields.ListField)
 
 
+class PostCommandTest(LimpydBaseTest):
+
+    class MyModel(model.RedisModel):
+        name = fields.HashableField()
+        last_modification_date = fields.HashableField()
+
+        def post_command(self, sender, name, result, args, kwargs):
+            if isinstance(sender, fields.RedisField) and sender.name == "name":
+                if name in sender.available_modifiers:
+                    self.last_modification_date.hset(datetime.now())
+                elif name == "hget":
+                    result = "modifed_result"
+            return result
+
+    def test_instance_post_command_is_called(self):
+        inst = self.MyModel()
+        self.assertIsNone(inst.last_modification_date.hget())
+        inst.name.hset("foo")
+        # If post command has been called, last_modification_date must have changed
+        self.assertIsNotNone(inst.last_modification_date.hget())
+        last_modification_date = inst.last_modification_date.hget()
+        # Change field again
+        inst.name.hset("bar")
+        self.assertNotEqual(last_modification_date, inst.last_modification_date.hget())
+
+    def test_result_is_returned(self):
+        inst = self.MyModel(name="foo")
+        self.assertEqual("modifed_result", inst.name.hget())
+
+
 class InheritanceTest(LimpydBaseTest):
 
-    def test_fields(self):
+    def test_inheritance_fields(self):
         """
         Test that all fields are properly set on each model
         """
         bike = Bike()
-        self.assertEqual(len(bike._fields), 2)
-        self.assertEqual(set(bike._fields), set(['name', 'wheels']))
+        self.assertEqual(len(bike._fields), 3)
+        self.assertEqual(set(bike._fields), set(['name', 'wheels', 'passengers']))
         motorbike = MotorBike()
-        self.assertEqual(len(motorbike._fields), 3)
-        self.assertEqual(set(motorbike._fields), set(['name', 'wheels', 'power']))
+        self.assertEqual(len(motorbike._fields), 4)
+        self.assertEqual(set(motorbike._fields), set(['name', 'wheels', 'power', 'passengers']))
         boat = Boat()
         self.assertEqual(len(boat._fields), 4)
         self.assertEqual(set(boat._fields), set(['name', 'launched', 'power', 'length']))
 
-    def test_values(self):
+    def test_inheritance_values(self):
         """
         Test that all values are correctly set on the good models
         """
@@ -302,6 +374,17 @@ class InheritanceTest(LimpydBaseTest):
         self.assertEqual(bike.wheels.get(), '4')
         self.assertEqual(motorbike.wheels.get(), '2')
         self.assertEqual(motorbike.power.get(), 'not enough')
+
+    def test_inheritance_collections(self):
+        """
+        Test that each model has its own collections
+        """
+        bike = Bike(name="rosalie", wheels=4)
+        motorbike = MotorBike(name='davidson', wheels=2, power='not enough')
+        self.assertEqual(len(Bike.collection(name="rosalie")), 1)
+        self.assertEqual(len(Bike.collection(name="davidson")), 0)
+        self.assertEqual(len(MotorBike.collection(name="rosalie")), 0)
+        self.assertEqual(len(MotorBike.collection(name="davidson")), 1)
 
 
 if __name__ == '__main__':

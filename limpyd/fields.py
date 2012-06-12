@@ -51,7 +51,18 @@ class RedisProxyCommand(object):
         attr = getattr(self.connection, "%s" % name)
         key = self.key
         log.debug(u"Requesting %s with key %s and args %s" % (name, key, args))
-        return attr(key, *args, **kwargs)
+        result = attr(key, *args, **kwargs)
+        result = self.post_command(
+            sender=self,
+            name=name,
+            result=result,
+            args=args,
+            kwargs=kwargs
+        )
+        return result
+
+    def post_command(self, sender, name, result, args, kwargs):
+        return result
 
     @classmethod
     def get_connection(cls):
@@ -90,6 +101,7 @@ class RedisField(RedisProxyCommand):
 
     def __init__(self, *args, **kwargs):
         self.indexable = False
+        self.cacheable = kwargs.get('cacheable', True)
         if "default" in kwargs:
             self.default = kwargs["default"]
 
@@ -97,7 +109,8 @@ class RedisField(RedisProxyCommand):
         """
         Create the field cache key, or flush it if it already exists.
         """
-        self._instance._cache[self.name] = {}
+        if self.cacheable and self._instance.cacheable:
+            self._instance._cache[self.name] = {}
 
     @property
     def key(self):
@@ -114,8 +127,16 @@ class RedisField(RedisProxyCommand):
         return self._instance.connection
 
     def __copy__(self):
-        new_copy = self.__class__()
-        new_copy.__dict__ = self.__dict__
+        """
+        In the RedisModel metaclass and constructor, we need to copy the fields
+        to new ones. It can be done via the copy function of the copy module.
+        This __copy__ method handles the copy by creating a new field with same
+        attributes, without ignoring private attributes
+        """
+        new_copy = self.__class__(**self.__dict__)
+        for attr_name in ('name', '_instance', '_parent_class'):
+            if hasattr(self, attr_name):
+                setattr(new_copy, attr_name, getattr(self, attr_name))
         return new_copy
 
     def make_key(self, *args):
@@ -128,6 +149,16 @@ class RedisField(RedisProxyCommand):
         # Default value, just delete the storage key
         # (More job could be done by specific field classes)
         self.connection.delete(self.key)
+
+    def post_command(self, sender, name, result, args, kwargs):
+        # By default, let the instance manage the post_modify signal
+        return self._instance.post_command(
+                   sender=self,
+                   name=name,
+                   result=result,
+                   args=args,
+                   kwargs=kwargs
+               )
 
 
 class IndexableField(RedisField):
