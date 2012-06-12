@@ -23,9 +23,11 @@ class ConnectionSettings(object):
 
 
 def get_connection():
-    connection = redis.StrictRedis(
-        host=ConnectionSettings.HOST,
-        port=ConnectionSettings.PORT,
-        db=ConnectionSettings.DB_ID,
-    )
-    return connection
+    if get_connection.cache is None:
+        get_connection.cache = redis.StrictRedis(
+            host=ConnectionSettings.HOST,
+            port=ConnectionSettings.PORT,
+            db=ConnectionSettings.DB_ID,
+        )
+    return get_connection.cache
+get_connection.cache = None
