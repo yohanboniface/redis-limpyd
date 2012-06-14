@@ -66,6 +66,13 @@ class RedisProxyCommand(object):
     def post_command(self, sender, name, result, args, kwargs):
         return result
 
+    @classmethod
+    def get_connection(cls):
+        """
+        Override this class if you want a connection different to the default one
+        """
+        return get_connection()
+
     class transaction(object):
 
         def __init__(self, instance):
@@ -78,7 +85,7 @@ class RedisProxyCommand(object):
             # Not working with getters: pipeline methods return pipeline instance, so
             # a .get() made with a pipeline does not have the same behaviour
             # than a .get() made with a client
-            connection = get_connection()
+            connection = self.instance.get_connection()
             self.pipe = connection.pipeline()
             self.instance._connection = self.pipe
             return self.pipe
@@ -130,7 +137,7 @@ class RedisField(RedisProxyCommand):
         attributes, without ignoring private attributes
         """
         new_copy = self.__class__(**self.__dict__)
-        for attr_name in ('name', '_instance', '_parent_class'):
+        for attr_name in ('name', '_instance', '_model'):
             if hasattr(self, attr_name):
                 setattr(new_copy, attr_name, getattr(self, attr_name))
         return new_copy
@@ -231,7 +238,7 @@ class IndexableField(RedisField):
         if not self.indexable:
             raise ValueError("Field %s is not indexable, cannot ask its index_key" % self.name)
         return self.make_key(
-            self._parent_class,
+            self._model._name,
             self.name,
             value,
         )
@@ -343,7 +350,7 @@ class PKField(RedisField):
         """
         if value is None:
             raise ValueError('The pk for %s is not "auto-increment", you must fill it' % \
-                            self._parent_class)
+                            self._model._name)
         return value
 
     @property
@@ -352,19 +359,19 @@ class PKField(RedisField):
         Property that return the name of the key in Redis where are stored
         all the exinsting pk for the model hosting this PKField
         """
-        return '%s:collection' % self._parent_class
+        return '%s:collection' % self._model._name
 
     def exists(self, value):
         """
         Return True if the given pk value exists for the given class
         """
-        return get_connection().sismember(self.collection_key, value)
+        return self.get_connection().sismember(self.collection_key, value)
 
     def collection(self):
         """
         Return all available primary keys for the given class
         """
-        return get_connection().smembers(self.collection_key)
+        return self.get_connection().smembers(self.collection_key)
 
     def set(self, value):
         """
@@ -391,7 +398,7 @@ class PKField(RedisField):
         self._set = True
 
         # We have a new pk, so add it to the collection
-        log.debug("Adding %s in %s collection" % (value, self._parent_class))
+        log.debug("Adding %s in %s collection" % (value, self._model._name))
         self.connection.sadd(self.collection_key, value)
 
         # Finally return 1 as we did a real redis call to the set command
@@ -420,6 +427,6 @@ class AutoPKField(PKField):
         """
         if value is not None:
             raise ValueError('The pk for %s is "auto-increment", you must not fill it' % \
-                            self._parent_class)
-        key = self._instance.make_key(self._parent_class, 'max_pk')
+                            self._model._name)
+        key = self._instance.make_key(self._model._name, 'max_pk')
         return self.connection.incr(key)

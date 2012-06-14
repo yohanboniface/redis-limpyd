@@ -521,5 +521,16 @@ class PKFieldTest(LimpydBaseTest):
         self.assertEqual(self.RedefinedNotAutoPkField.collection(id=2), set(['2', ]))
 
 
+class ConnectionTest(LimpydBaseTest):
+
+    def test_connection_must_be_reused(self):
+        connected_before = self.connection.info()['connected_clients']
+        Bike(name="rosalie", wheels=4)
+        Bike(name="randonneuse", wheels=4)
+        Bike.get(name="rosalie")
+        connected_after = self.connection.info()['connected_clients']
+        self.assertEqual(connected_before, connected_after)
+
+
 if __name__ == '__main__':
     unittest.main()
