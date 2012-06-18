@@ -40,6 +40,20 @@ class Boat(TestModelConnectionMixin, model.RedisModel):
     length = fields.StringField()
 
 
+class ModelUnicityTest(LimpydBaseTest):
+    def test_two_models_cannot_have_the_same_name(self):
+        with self.assertRaises(ImplementationError):
+            class Bike(TestModelConnectionMixin, model.RedisModel):
+                pass
+        with self.assertRaises(ImplementationError):
+            class bike(TestModelConnectionMixin, model.RedisModel):
+                pass
+        with self.assertRaises(ImplementationError):
+            class bIkE(TestModelConnectionMixin, model.RedisModel):
+                pass
+
+
+
 class InitTest(LimpydBaseTest):
 
     def test_instanciation_should_no_connect(self):
@@ -589,7 +603,7 @@ class DeleteTest(LimpydBaseTest):
 
     def test_hashablefield_keys_are_deleted(self):
 
-        class Train(TestModelConnectionMixin, model.RedisModel):
+        class Train_(TestModelConnectionMixin, model.RedisModel):
             name = fields.HashableField(unique=True)
             kind = fields.HashableField(indexable=True)
             wagons = fields.HashableField(default=10)
@@ -598,8 +612,8 @@ class DeleteTest(LimpydBaseTest):
         self.assertEqual(len(self.connection.keys()), 0)
         # Create two models, to check also that the other is not
         # impacted by the delete of some field
-        train1 = Train(name="Occitan", kind="Corail")
-        train2 = Train(name="Teoz", kind="Corail")
+        train1 = Train_(name="Occitan", kind="Corail")
+        train2 = Train_(name="Teoz", kind="Corail")
         # Check that data is stored
         # Here we must have 7 keys:
         # - the pk collection
@@ -616,7 +630,7 @@ class DeleteTest(LimpydBaseTest):
         self.assertEqual(len(self.connection.keys()), 6)
         self.assertEqual(self.connection.hlen(train1.key), 2)
         self.assertEqual(train1.name.hget(), None)
-        self.assertFalse(Train.exists(name="Occitan"))
+        self.assertFalse(Train_.exists(name="Occitan"))
         self.assertEqual(train1.wagons.hget(), '10')
         self.assertEqual(train2.name.hget(), 'Teoz')
         self.assertEqual(len(self.connection.keys()), 6)
@@ -626,20 +640,20 @@ class DeleteTest(LimpydBaseTest):
         train1.kind.delete()
         self.assertEqual(len(self.connection.keys()), 6)
         self.assertEqual(self.connection.hlen(train1.key), 1)
-        self.assertEqual(len(Train.collection(kind="Corail")), 1)
+        self.assertEqual(len(Train_.collection(kind="Corail")), 1)
 
     def test_pkfield_cannot_be_deleted(self):
 
-        class Train(TestModelConnectionMixin, model.RedisModel):
+        class Train__(TestModelConnectionMixin, model.RedisModel):
             name = fields.HashableField(unique=True)
 
-        train = Train(name="TGV")
+        train = Train__(name="TGV")
         with self.assertRaises(ImplementationError):
             train.pk.delete()
 
     def test_model_delete(self):
 
-        class Train(TestModelConnectionMixin, model.RedisModel):
+        class Train___(TestModelConnectionMixin, model.RedisModel):
             name = fields.HashableField(unique=True)
             kind = fields.StringField(indexable=True)
             wagons = fields.HashableField(default=10)
@@ -648,8 +662,8 @@ class DeleteTest(LimpydBaseTest):
         self.assertEqual(len(self.connection.keys()), 0)
         # Create two models, to check also that the other is not
         # impacted by the delete of some field
-        train1 = Train(name="Occitan", kind="Corail")
-        train2 = Train(name="Teoz", kind="Corail")
+        train1 = Train___(name="Occitan", kind="Corail")
+        train2 = Train___(name="Teoz", kind="Corail")
         # Check that data is stored
         # Here we must have 9 keys:
         # - the pk collection
@@ -665,12 +679,12 @@ class DeleteTest(LimpydBaseTest):
         self.assertEqual(train1.name.hget(), None)
         self.assertEqual(train1.kind.get(), None)
         self.assertEqual(train1.wagons.hget(), None)
-        self.assertFalse(Train.exists(name="Occitan"))
-        self.assertTrue(Train.exists(name="Teoz"))
+        self.assertFalse(Train___.exists(name="Occitan"))
+        self.assertTrue(Train___.exists(name="Teoz"))
         self.assertEqual(train2.name.hget(), 'Teoz')
         self.assertEqual(len(self.connection.keys()), 6)
-        self.assertEqual(len(Train.collection(kind="Corail")), 1)
-        self.assertEqual(len(Train.collection()), 1)
+        self.assertEqual(len(Train___.collection(kind="Corail")), 1)
+        self.assertEqual(len(Train___.collection()), 1)
 
 
 class ConnectionTest(LimpydBaseTest):
