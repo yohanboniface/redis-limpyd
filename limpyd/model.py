@@ -12,12 +12,18 @@ __all__ = ['RedisModel', ]
 
 log = getLogger(__name__)
 
+ALL_MODELS = {}
+
 
 class MetaRedisModel(MetaRedisProxy):
     """
     We make invisible for user that fields were class properties
     """
     def __new__(mcs, name, base, attrs):
+        if name.lower() in ALL_MODELS:
+            raise ImplementationError(
+                'Names of models must be unique. There is already a model named %s' % name)
+
         it = type.__new__(mcs, name, base, attrs)
         it._name = name.lower()
 
@@ -83,6 +89,7 @@ class MetaRedisModel(MetaRedisProxy):
         if pk_field.name != 'pk':
             setattr(it, "_redis_attr_pk", getattr(it, "_redis_attr_%s" % pk_field.name))
 
+        ALL_MODELS[it._name] = it
         return it
 
 
