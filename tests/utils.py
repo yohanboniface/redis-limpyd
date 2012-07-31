@@ -7,7 +7,8 @@ from limpyd.utils import make_key, unique_key
 
 from logging import getLogger, DEBUG, StreamHandler
 
-class log_debug_to_stderr():
+
+def log_debug_to_stderr():
     log = getLogger('limpyd')
     log.setLevel(DEBUG)
     log.addHandler(StreamHandler())
