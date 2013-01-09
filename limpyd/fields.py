@@ -129,7 +129,7 @@ class RedisProxyCommand(object):
         if not name in self.available_commands:
             raise AttributeError("%s is not an available command for %s" % (name, self.__class__.__name__))
 
-        command = Command(name, [self.key, ] + list(args), kwargs)
+        command = Command(name, self.key, *args, **kwargs)
         context = {'sender': self, }
         result = self.database.run_command(command, context)
 

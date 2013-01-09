@@ -1,7 +1,6 @@
 # -*- coding:utf-8 -*-
 
 import redis
-from collections import namedtuple
 
 from limpyd.exceptions import *
 
@@ -15,8 +14,45 @@ DEFAULT_CONNECTION_SETTINGS = dict(
     db=0
 )
 
-Command = namedtuple('Command', ['name', 'args', 'kwargs'])
-Result = namedtuple('Result', ['value', ])
+
+class Command(object):
+    """
+    Object to pass the command through middlewares
+    """
+    __slots__ = ('name', 'args', 'kwargs',)
+
+    def __init__(self, name, *args, **kwargs):
+        self.name = name
+        self.args = args
+        self.kwargs = kwargs
+
+    def __unicode__(self):
+        return u"Command(name='%s', args=%s, kwargs=%s)" % (self.name, self.args, self.kwargs)
+
+    def __str__(self):
+        return unicode(self).encode('utf-8')
+
+    def __repr__(self):
+        return str(self)
+
+
+class Result(object):
+    """
+    Object to pass the command's result through middlewares
+    """
+    __slots__ = ('value',)
+
+    def __init__(self, value):
+        self.value = value
+
+    def __unicode__(self):
+        return u"Result(value=%s)" % self.value
+
+    def __str__(self):
+        return unicode(self).encode('utf-8')
+
+    def __repr__(self):
+        return str(self)
 
 
 class RedisDatabase(object):
