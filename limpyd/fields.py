@@ -230,12 +230,18 @@ class RedisField(RedisProxyCommand):
         self._creation_order = RedisField._creation_order
         RedisField._creation_order += 1
 
-    def proxy_get(self):
+    def proxy_get(self, _direct=False):
         """
-        A helper to easily call the proxy_getter of the field
+        A helper to easily call the proxy_getter of the field.
+        If _direct is True, don't use the _traverse_command method but directly
+        use the connection to redis
         """
-        getter = getattr(self, self.proxy_getter)
-        return getter()
+        if _direct:
+            getter = getattr(self.connection, self.proxy_getter)
+            return getter(self.key)
+        else:
+            getter = getattr(self, self.proxy_getter)
+            return getter()
 
     def proxy_set(self, value):
         """
@@ -496,7 +502,7 @@ class RedisField(RedisProxyCommand):
         """
         Values for indexing must be a list, so return the simple value as a list
         """
-        return [self.proxy_get()]
+        return [self.proxy_get(_direct=True)]
 
     def index(self, values=None):
         """
@@ -596,7 +602,7 @@ class MultiValuesField(RedisField):
         """
         Return all values in the field for (de)indexing
         """
-        return self.proxy_get()
+        return self.proxy_get(_direct=True)
 
     def _add(self, command, *args, **kwargs):
         """
@@ -661,6 +667,17 @@ class SortedSetField(MultiValuesField):
         Used as a proxy_getter to get all values stored in the field.
         """
         return self.zrange(0, -1)
+
+    def proxy_get(self, _direct=False):
+        """
+        A helper to easily call the proxy_getter of the field.
+        If _direct is True, don't use the _traverse_command method but directly
+        use the connection to redis
+        """
+        if _direct:
+            return self.connection.zrange(self.key, 0, -1)
+        else:
+            return super(SortedSetField, self).proxy_get()
 
     def zadd(self, *args, **kwargs):
         """
@@ -780,6 +797,17 @@ class ListField(MultiValuesField):
         """
         return self.lrange(0, -1)
 
+    def proxy_get(self, _direct=False):
+        """
+        A helper to easily call the proxy_getter of the field.
+        If _direct is True, don't use the _traverse_command method but directly
+        use the connection to redis
+        """
+        if _direct:
+            return self.connection.lrange(self.key, 0, -1)
+        else:
+            return super(ListField, self).proxy_get()
+
     def linsert(self, where, refvalue, value):
         return self._call_command('linsert', where, refvalue, value, _to_index=[value], _to_deindex=[])
 
@@ -843,6 +871,17 @@ class HashableField(SingleValueField):
     _commands_to_proxy = {
         'hset': '_set',
     }
+
+    def proxy_get(self, _direct=False):
+        """
+        A helper to easily call the proxy_getter of the field.
+        If _direct is True, don't use the _traverse_command method but directly
+        use the connection to redis
+        """
+        if _direct:
+            return self.connection.hget(self.key, self.name)
+        else:
+            return super(HashableField, self).proxy_get()
 
     @property
     def key(self):
