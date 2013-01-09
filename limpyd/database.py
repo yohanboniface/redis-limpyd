@@ -1,6 +1,7 @@
 # -*- coding:utf-8 -*-
 
 import redis
+from collections import namedtuple
 
 from limpyd.exceptions import *
 
@@ -13,6 +14,9 @@ DEFAULT_CONNECTION_SETTINGS = dict(
     port=6379,
     db=0
 )
+
+Command = namedtuple('Command', ['name', 'args', 'kwargs'])
+Result = namedtuple('Result', ['value', ])
 
 
 class RedisDatabase(object):
@@ -27,12 +31,18 @@ class RedisDatabase(object):
     """
     _connections = {}  # class level cache
     discard_cache = False
+    middlewares = []
 
-    def __init__(self, **connection_settings):
+    def __init__(self, middlewares=None, **connection_settings):
         self._connection = None  # Instance level cache
         self.reset(**(connection_settings or DEFAULT_CONNECTION_SETTINGS))
+
         # _models keep an entry for each defined model on this database
         self._models = dict()
+
+        if middlewares is not None:
+            self.middlewares = middlewares
+
         super(RedisDatabase, self).__init__()
 
     def connect(self, **settings):
@@ -126,3 +136,64 @@ class RedisDatabase(object):
             except:
                 self._has_scripting = False
         return self._has_scripting
+
+    @property
+    def prepared_middlewares(self):
+        """
+        Load, cache and return the list of usable middlewares, as a dict with
+        an entry for each usable method.
+        {
+            'pre_command': [list, of, middlewares],
+            'post_command': [list, of, middlewares],
+        }
+        Middlewares must be defined while declaring the database:
+            database = RedisDatabase(middlewares=[
+                AMiddleware(),
+                AnoterMiddleware(some, parameter)
+            ], **connection_settings)
+        """
+
+        if not hasattr(self, '_prepared_middlewares'):
+
+            self._prepared_middlewares = {
+                'pre_command': [],
+                'post_command': [],
+            }
+
+            for middleware in self.middlewares:
+                middleware.database = self
+
+                for middleware_type in self._prepared_middlewares:
+                    if hasattr(middleware, middleware_type):
+                        self._prepared_middlewares[middleware_type].append(middleware)
+
+            self._prepared_middlewares['post_command'] = self._prepared_middlewares['post_command'][::-1]
+
+        return self._prepared_middlewares
+
+    def run_command(self, command, context=None):
+        """
+        Run a redis command, passing it through all defined middlewares.
+        The command must be a Command namedtuple
+        """
+        if context is None:
+            context = {}
+
+        result = None
+
+        for middleware in self.prepared_middlewares['pre_command']:
+            result = middleware.pre_command(command, context)
+            if result:
+                break
+
+        if result is None:
+            method = getattr(self.connection, "%s" % command.name)
+            result = method(*command.args, **command.kwargs)
+
+            if not isinstance(result, Result):
+                result = Result(result)
+
+        for middleware in self.prepared_middlewares['post_command']:
+            result = middleware.post_command(command, result, context)
+
+        return result.value

@@ -7,6 +7,7 @@ from redis.exceptions import RedisError
 from redis.client import Lock
 
 from limpyd.utils import make_key, memoize_command
+from limpyd.database import Command
 from limpyd.exceptions import *
 
 log = getLogger(__name__)
@@ -127,10 +128,12 @@ class RedisProxyCommand(object):
         # TODO: implement instance level cache
         if not name in self.available_commands:
             raise AttributeError("%s is not an available command for %s" % (name, self.__class__.__name__))
-        attr = getattr(self.connection, "%s" % name)
-        key = self.key
-        log.debug(u"Requesting %s with key %s and args %s" % (name, key, args))
-        result = attr(key, *args, **kwargs)
+
+        log.debug(u"Requesting %s with key %s and args %s" % (name, self.key, args))
+        command = Command(name, [self.key, ] + list(args), kwargs)
+        context = {'sender': self, }
+        result = self.database.run_command(command, context)
+
         result = self.post_command(
             sender=self,
             name=name,
