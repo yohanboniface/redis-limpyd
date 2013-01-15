@@ -30,14 +30,15 @@ class LoggingMiddleware(BaseMiddleware):
     Middleware that takes a logger, and log commands and their result (and time
     to run the command).
     """
-    def __init__(self, logger, log_results=True):
+    def __init__(self, logger, log_results=True, log_time=True):
         """
         The logger must be a defined and correctly initialized one (via logging)
         The log_results flag indicates if only the commands or also their result
-        (with duration) are logged.
+        (with duration, if log_time is True) are logged.
         """
         self.logger = logger
         self.log_results = log_results
+        self.log_time = log_time
         super(LoggingMiddleware, self).__init__()
 
     @BaseMiddleware.database.setter
@@ -48,14 +49,18 @@ class LoggingMiddleware(BaseMiddleware):
     def pre_command(self, command, context):
         self.database._command_logger_counter += 1
         context['_command_number'] = self.database._command_logger_counter
-        context['_start_time'] = time()
-        self.logger.info('[#%s] %s' % (context['_command_number'], str(command)))
+        if self.log_time:
+            context['_start_time'] = time()
+        self.logger.info(u'[#%s] %s' % (context['_command_number'], str(command)))
 
     def post_command(self, command, result, context):
         if self.log_results:
-            self.logger.info('[#%s, in %0.0fµs] %s' % (
-                context['_command_number'],
-                (time() - context['_start_time']) * 1000000,
-                str(result))
-            )
+            log_str = u'[#%s] %s'
+            log_params = [context['_command_number'], str(result)]
+            if self.log_time:
+                log_str = u'[#%s, in %0.0fµs] %s'
+                duration = (time() - context['_start_time']) * 1000000
+                log_params.insert(1, duration)
+
+            self.logger.info(log_str % tuple(log_params))
         return result
