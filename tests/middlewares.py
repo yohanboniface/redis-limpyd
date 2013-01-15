@@ -43,7 +43,7 @@ class ForceGetterMiddleware(BaseMiddleware):
 class BaseTestModel(model.RedisModel):
     abstract = True
     cacheable = False
-    foo = fields.HashableField()
+    foo = fields.InstanceHashField()
 
 
 class MiddlewareTest(LimpydBaseTest):
