@@ -7,6 +7,7 @@ from redis.exceptions import RedisError
 from redis.client import Lock
 
 from limpyd.utils import make_key, memoize_command
+from limpyd.database import Command
 from limpyd.exceptions import *
 
 log = getLogger(__name__)
@@ -125,10 +126,11 @@ class RedisProxyCommand(object):
         # TODO: implement instance level cache
         if not name in self.available_commands:
             raise AttributeError("%s is not an available command for %s" % (name, self.__class__.__name__))
-        attr = getattr(self.connection, "%s" % name)
-        key = self.key
-        log.debug(u"Requesting %s with key %s and args %s" % (name, key, args))
-        result = attr(key, *args, **kwargs)
+
+        command = Command(name, self.key, *args, **kwargs)
+        context = {'sender': self, }
+        result = self.database.run_command(command, context)
+
         result = self.post_command(
             sender=self,
             name=name,
@@ -230,12 +232,18 @@ class RedisField(RedisProxyCommand):
         self._creation_order = RedisField._creation_order
         RedisField._creation_order += 1
 
-    def proxy_get(self):
+    def proxy_get(self, _direct=False):
         """
-        A helper to easily call the proxy_getter of the field
+        A helper to easily call the proxy_getter of the field.
+        If _direct is True, don't use the _traverse_command method but directly
+        use the connection to redis
         """
-        getter = getattr(self, self.proxy_getter)
-        return getter()
+        if _direct:
+            getter = getattr(self.connection, self.proxy_getter)
+            return getter(self.key)
+        else:
+            getter = getattr(self, self.proxy_getter)
+            return getter()
 
     def proxy_set(self, value):
         """
@@ -464,7 +472,7 @@ class RedisField(RedisProxyCommand):
         """
         if self.indexable:
             if value is None:
-                value = self.proxy_get()
+                value = self.proxy_get(_direct=True)
             key = self.index_key(value)
             self.add_index(key)
 
@@ -478,7 +486,7 @@ class RedisField(RedisProxyCommand):
         """
         if self.indexable:
             if value is None:
-                value = self.proxy_get()
+                value = self.proxy_get(_direct=True)
             key = self.index_key(value)
             self.remove_index(key)
 
@@ -546,7 +554,7 @@ class SingleValueField(RedisField):
         Helper for commands that only set a value to the field.
         """
         if self.indexable:
-            current = self.proxy_get()
+            current = self.proxy_get(_direct=True)
             if current != value:
                 self.deindex(current)
             self.index(value)
@@ -630,7 +638,7 @@ class MultiValuesField(RedisField):
         """
         if self.indexable:
             if values is None:
-                values = self.proxy_get()
+                values = self.proxy_get(_direct=True)
             for value in values:
                 key = self.index_key(value)
                 self.add_index(key)
@@ -641,7 +649,7 @@ class MultiValuesField(RedisField):
         """
         if self.indexable:
             if not values:
-                values = self.proxy_get()
+                values = self.proxy_get(_direct=True)
             for value in values:
                 key = self.index_key(value)
                 self.remove_index(key)
@@ -674,6 +682,17 @@ class SortedSetField(MultiValuesField):
         Used as a proxy_getter to get all values stored in the field.
         """
         return self.zrange(0, -1)
+
+    def proxy_get(self, _direct=False):
+        """
+        A helper to easily call the proxy_getter of the field.
+        If _direct is True, don't use the _traverse_command method but directly
+        use the connection to redis
+        """
+        if _direct:
+            return self.connection.zrange(self.key, 0, -1)
+        else:
+            return super(SortedSetField, self).proxy_get()
 
     def _call_zadd(self, command, *args, **kwargs):
         """
@@ -788,6 +807,17 @@ class ListField(MultiValuesField):
         """
         return self.lrange(0, -1)
 
+    def proxy_get(self, _direct=False):
+        """
+        A helper to easily call the proxy_getter of the field.
+        If _direct is True, don't use the _traverse_command method but directly
+        use the connection to redis
+        """
+        if _direct:
+            return self.connection.lrange(self.key, 0, -1)
+        else:
+            return super(ListField, self).proxy_get()
+
     def _pushx(self, command, *args, **kwargs):
         """
         Helper for lpushx and rpushx, that only index the new values if the list
@@ -845,7 +875,7 @@ class HashField(MultiValuesField):
 
     def _call_hmset(self, command, *args, **kwargs):
         if self.indexable:
-            current = self.proxy_get()
+            current = self.proxy_get(_direct=True)
             _to_deindex = dict((k, current[k]) for k in kwargs.iterkeys() if k in current)
             self.deindex(_to_deindex)
             self.index(kwargs)
@@ -853,7 +883,7 @@ class HashField(MultiValuesField):
 
     def _call_hset(self, command, key, value):
         if self.indexable:
-            current = self.proxy_get()
+            current = self.proxy_get(_direct=True)
             if value != current.get(key, None):
                 if key in current:
                     self.deindex({key: current[key]})
@@ -862,7 +892,7 @@ class HashField(MultiValuesField):
 
     def _call_hincrby(self, command, key, amount):
         if self.indexable:
-            current = self.proxy_get()
+            current = self.proxy_get(_direct=True)
             if key in current:
                 self.deindex({key: current[key]})
         result = self._traverse_command(command, key, amount)
@@ -872,7 +902,7 @@ class HashField(MultiValuesField):
 
     def _call_hdel(self, command, *args):
         if self.indexable:
-            current = self.proxy_get()
+            current = self.proxy_get(_direct=True)
             self.deindex(dict((k, current[k]) for k in args if k in current))
         return self._traverse_command(command, *args)
 
@@ -908,7 +938,7 @@ class HashField(MultiValuesField):
         """
         if self.indexable:
             if values is None:
-                values = self.proxy_get()
+                values = self.proxy_get(_direct=True)
             for field_name, value in values.iteritems():
                 key = self.index_key(value, field_name)
                 self.add_index(key)
@@ -919,7 +949,7 @@ class HashField(MultiValuesField):
         """
         if self.indexable:
             if values is None:
-                values = self.proxy_get()
+                values = self.proxy_get(_direct=True)
             for field_name, value in values.iteritems():
                 key = self.index_key(value, field_name)
                 self.remove_index(key)
@@ -937,6 +967,17 @@ class InstanceHashField(SingleValueField):
 
     _call_hset = SingleValueField._call_set
     _call_hdel = RedisField._del
+
+    def proxy_get(self, _direct=False):
+        """
+        A helper to easily call the proxy_getter of the field.
+        If _direct is True, don't use the _traverse_command method but directly
+        use the connection to redis
+        """
+        if _direct:
+            return self.connection.hget(self.key, self.name)
+        else:
+            return super(InstanceHashField, self).proxy_get()
 
     @property
     def key(self):
