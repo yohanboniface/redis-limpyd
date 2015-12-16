@@ -5,6 +5,7 @@ from future.builtins import str
 from future.builtins import zip
 from future.utils import with_metaclass
 
+import abc
 from logging import getLogger
 from copy import copy
 
@@ -31,7 +32,7 @@ __all__ = [
 ]
 
 
-class MetaRedisProxy(type):
+class MetaRedisProxy(abc.ABCMeta):
     """
     This metaclass create the class normally, then takes a list of redis
     commands found in the "available_*" class attributes, and for each one
